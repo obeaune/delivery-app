@@ -1,26 +1,33 @@
-// import { StatusCodes } from 'http-status-codes';
+const { StatusCodes } = require('http-status-codes');
+const { Op } = require('sequelize');
 const md5 = require('md5');
-const { UNAUTHORIZED } = require('http-status-codes');
-const { generateJWTToken } = require('../shared/JWTHelpers');
 const HttpException = require('../shared/HttpException');
 const { User } = require('../database/models');
 
-const findAllUsersButAdmin = async ({ email, password }) => {
-  if (!email || !password) {
-    throw new HttpException(400, 'All fields must be filled');
-  }
+const createUser = async ({ name, email, password, role }) => {
+  const userFound = await User.findOne({ where: { [Op.or]: [{ name }, { email }] } });
+  if (userFound) throw new HttpException(StatusCodes.CONFLICT, 'Name or email already taken.');
+
   const hash = md5(password);
-  const userFound = await User.findOne({ where: { email, password: hash } });
-  if (!userFound) {
-    throw new HttpException(404, 'Incorrect email or password');
-  }
-  const { name, role } = userFound;
-  if (role !== 'administrator') throw new HttpException(UNAUTHORIZED, 'user must be admin');
-  generateJWTToken({ name, email, role });
-  const allUsers = await User.findAll();
+  const newUser = await User.create({ name, email, password: hash, role });
+  return newUser;
+};
+
+const getUsers = async () => {
+  const allUsers = await User.findAll({
+    where: { [Op.or]: [{ role: 'customer' }, { role: 'seller' }] },
+    attributes: { exclude: ['password'] },
+  });
   return allUsers;
 };
 
-module.exports = {
-  findAllUsersButAdmin,
+const exclude = async ({ id }) => {
+  const userFound = await User.findOne({ where: { id } });
+  if (!userFound) throw new HttpException(StatusCodes.BAD_REQUEST, 'User not found');
+
+  const excludedUser = await User.destroy({ where: { id } });
+  // a func destroy retorna 1 (true) quando é bem sucedida
+  return excludedUser;
 };
+
+module.exports = { createUser, getUsers, exclude };
